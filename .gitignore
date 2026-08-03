@@ -7,7 +7,6 @@
 .buildlog/
 .history
 /windows/*
-/ios/*
 /android/*
 /web/*
 
