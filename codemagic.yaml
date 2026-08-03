@@ -21,6 +21,10 @@
 #   Android applicationId: com.statmaxxer.stat_maxxer
 #   iOS bundle id:         com.statmaxxer.statMaxxer
 #   Version:               1.0.0+1 (pubspec.yaml; overridden by --build-number below)
+#
+# Caching: each workflow keeps its own cache for ~14 days after a successful
+# build. First build still downloads deps; later builds reuse pub / pods /
+# gradle caches. Do NOT cache $HOME/.gradle or Xcode DerivedData.
 
 workflows:
   # ---------------------------------------------------------------------------
@@ -30,6 +34,10 @@ workflows:
     name: Android Release (APK + AAB)
     instance_type: mac_mini_m2
     max_build_duration: 60
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
     environment:
       flutter: stable
       # --- Android signing (Codemagic UI) ---
@@ -94,6 +102,10 @@ workflows:
     name: iOS Release (IPA)
     instance_type: mac_mini_m2
     max_build_duration: 90
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
     # TODO: App Store Connect API key integration
     # Codemagic → Team integrations → Developer Portal → App Store Connect
     # Create an integration, then set the name below (must match exactly).
@@ -180,6 +192,10 @@ workflows:
     name: Android Debug APK
     instance_type: mac_mini_m2
     max_build_duration: 45
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
     environment:
       flutter: stable
     scripts:
@@ -199,6 +215,10 @@ workflows:
     name: iOS Unsigned IPA
     instance_type: mac_mini_m2
     max_build_duration: 60
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
     environment:
       flutter: stable
       xcode: latest
