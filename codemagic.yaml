@@ -1,0 +1,197 @@
+# Codemagic CI/CD for StatMaxxer (Flutter)
+#
+# Setup checklist (Codemagic UI):
+# 1. Add this repo at https://codemagic.io → Applications → Add application
+# 2. Select "codemagic.yaml" as the configuration file (repo root)
+# 3. Configure signing (see comments under each workflow's environment section)
+# 4. Start a build for `android-release` and/or `ios-release`
+#
+# Artifacts appear on the finished build page under "Artifacts"
+# (APK/AAB under build/**/outputs/**, IPA under build/ios/ipa/).
+#
+# App IDs (from project config):
+#   Android applicationId: com.statmaxxer.stat_maxxer
+#   iOS bundle id:         com.statmaxxer.statMaxxer
+#   Version:               1.0.0+1 (pubspec.yaml; overridden by --build-number below)
+
+workflows:
+  # ---------------------------------------------------------------------------
+  # Android — release APK + AAB
+  # ---------------------------------------------------------------------------
+  android-release:
+    name: Android Release (APK + AAB)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      # --- Android signing (Codemagic UI) ---
+      # Team settings → codemagic.yaml settings → Code signing identities
+      # → Android keystores → upload .jks/.keystore and set a Reference name.
+      # Then replace `statmaxxer_android` below with that reference name.
+      # Codemagic injects: CM_KEYSTORE_PATH, CM_KEYSTORE_PASSWORD,
+      #   CM_KEY_ALIAS, CM_KEY_PASSWORD (read by android/app/build.gradle.kts).
+      android_signing:
+        - statmaxxer_android
+      # Optional: create an Environment variable group in Codemagic (e.g. "android_credentials")
+      # if you prefer raw CM_* / custom vars instead of Code signing identities.
+      # groups:
+      #   - android_credentials
+      vars:
+        PACKAGE_NAME: "com.statmaxxer.stat_maxxer"
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      - name: Analyze
+        script: |
+          flutter analyze --no-fatal-infos
+      - name: Unit tests
+        script: |
+          flutter test
+      - name: Build release APK
+        script: |
+          # BUILD_NUMBER is provided by Codemagic (increments per build).
+          flutter build apk --release \
+            --build-name=1.0.$BUILD_NUMBER \
+            --build-number=$BUILD_NUMBER
+      - name: Build release App Bundle (AAB)
+        script: |
+          flutter build appbundle --release \
+            --build-name=1.0.$BUILD_NUMBER \
+            --build-number=$BUILD_NUMBER
+    artifacts:
+      - build/**/outputs/**/*.apk
+      - build/**/outputs/**/*.aab
+      - build/**/outputs/**/mapping.txt
+    # publishing:
+    #   email:
+    #     recipients:
+    #       - you@example.com
+    #     notify:
+    #       success: true
+    #       failure: true
+    #   google_play:
+    #     # Requires env group with GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS (JSON)
+    #     credentials: $GOOGLE_PLAY_SERVICE_ACCOUNT_CREDENTIALS
+    #     track: internal
+    #     submit_as_draft: true
+
+  # ---------------------------------------------------------------------------
+  # iOS — signed IPA (App Store / TestFlight distribution)
+  # ---------------------------------------------------------------------------
+  ios-release:
+    name: iOS Release (IPA)
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    # TODO: App Store Connect API key integration
+    # Codemagic → Team integrations → Developer Portal → App Store Connect
+    # Create an integration, then set the name below (must match exactly).
+    # integrations:
+    #   app_store_connect: <your_asc_integration_name>
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      # --- iOS signing ---
+      # Preferred (automatic): enable the App Store Connect integration above, then
+      # Codemagic fetches/creates certs + profiles for this bundle id.
+      #
+      # Manual alternative (Code signing identities):
+      #   Upload distribution certificate (.p12) + provisioning profile (.mobileprovision)
+      #   and use an env group, e.g.:
+      # groups:
+      #   - ios_credentials   # may include CM_CERTIFICATE, CM_CERTIFICATE_PASSWORD,
+      #                       # CM_PROVISIONING_PROFILE (or Codemagic UI uploads)
+      #
+      # ios_signing below requires matching profiles for the bundle identifier.
+      # Comment out ios_signing until Apple credentials are wired, or the build
+      # will fail at the "use-profiles" / archive step.
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.statmaxxer.statMaxxer
+      vars:
+        BUNDLE_ID: "com.statmaxxer.statMaxxer"
+        XCODE_WORKSPACE: "Runner.xcworkspace"
+        XCODE_SCHEME: "Runner"
+    scripts:
+      - name: Set up code signing settings on Xcode project
+        script: |
+          # Applies provisioning profiles fetched via ios_signing / integration.
+          # TODO: Ensure App Store Connect integration or uploaded profiles exist first.
+          xcode-project use-profiles
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Build IPA
+        script: |
+          # export_options.plist is generated by `xcode-project use-profiles`
+          flutter build ipa --release \
+            --build-name=1.0.$BUILD_NUMBER \
+            --build-number=$BUILD_NUMBER \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+      - flutter_drive.log
+    # publishing:
+    #   email:
+    #     recipients:
+    #       - you@example.com
+    #     notify:
+    #       success: true
+    #       failure: true
+    #   app_store_connect:
+    #     # Requires integrations.app_store_connect above
+    #     auth: integration
+    #     submit_to_testflight: true
+    #     submit_to_app_store: false
+
+  # ---------------------------------------------------------------------------
+  # Optional smoke builds (no release signing) — useful before wiring secrets
+  # ---------------------------------------------------------------------------
+  android-debug:
+    name: Android Debug APK
+    instance_type: mac_mini_m2
+    max_build_duration: 45
+    environment:
+      flutter: stable
+    scripts:
+      - name: Set up local.properties
+        script: |
+          echo "flutter.sdk=$HOME/programs/flutter" > "$CM_BUILD_DIR/android/local.properties"
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      - name: Build debug APK
+        script: |
+          flutter build apk --debug
+    artifacts:
+      - build/**/outputs/**/*.apk
+
+  ios-unsigned:
+    name: iOS Unsigned (compile check)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Get Flutter packages
+        script: |
+          flutter pub get
+      - name: Install CocoaPods
+        script: |
+          find . -name "Podfile" -execdir pod install \;
+      - name: Build iOS without code signing
+        script: |
+          flutter build ios --debug --no-codesign
+    artifacts:
+      - build/ios/iphoneos/**/*.app
+      - /tmp/xcodebuild_logs/*.log
