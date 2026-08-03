@@ -4,7 +4,7 @@
 # 1. Add this repo at https://codemagic.io → Applications → Add application
 # 2. Select "codemagic.yaml" as the configuration file (repo root)
 # 3. Configure signing (see comments under each workflow's environment section)
-# 4. Start a build for `android-release` and/or `ios-release`
+# 4. Start a build for `android-release`, `ios-release`, or `ios-unsigned`
 #
 # IMPORTANT: Commit and push `ios/` (and `android/`) to the branch Codemagic
 # builds. Flutter exits with "Application not configured for iOS" when
@@ -13,10 +13,18 @@
 # Artifacts appear on the finished build page under "Artifacts"
 # (APK/AAB under build/**/outputs/**, IPA under build/ios/ipa/).
 #
+# `ios-unsigned` packages Runner.app into StatMaxxer-unsigned-<n>.ipa
+# (no Apple signing — re-sign before installing on a device).
+# Local Mac alternative: ./scripts/build_unsigned_ipa.sh
+#
 # App IDs (from project config):
 #   Android applicationId: com.statmaxxer.stat_maxxer
 #   iOS bundle id:         com.statmaxxer.statMaxxer
 #   Version:               1.0.0+1 (pubspec.yaml; overridden by --build-number below)
+#
+# Caching: each workflow keeps its own cache for ~14 days after a successful
+# build. First build still downloads deps; later builds reuse pub / pods /
+# gradle caches. Do NOT cache $HOME/.gradle or Xcode DerivedData.
 
 workflows:
   # ---------------------------------------------------------------------------
@@ -26,6 +34,10 @@ workflows:
     name: Android Release (APK + AAB)
     instance_type: mac_mini_m2
     max_build_duration: 60
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
     environment:
       flutter: stable
       # --- Android signing (Codemagic UI) ---
@@ -90,6 +102,10 @@ workflows:
     name: iOS Release (IPA)
     instance_type: mac_mini_m2
     max_build_duration: 90
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
     # TODO: App Store Connect API key integration
     # Codemagic → Team integrations → Developer Portal → App Store Connect
     # Create an integration, then set the name below (must match exactly).
@@ -176,6 +192,10 @@ workflows:
     name: Android Debug APK
     instance_type: mac_mini_m2
     max_build_duration: 45
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/.gradle/caches
     environment:
       flutter: stable
     scripts:
@@ -192,9 +212,13 @@ workflows:
       - build/**/outputs/**/*.apk
 
   ios-unsigned:
-    name: iOS Unsigned (compile check)
+    name: iOS Unsigned IPA
     instance_type: mac_mini_m2
     max_build_duration: 60
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
     environment:
       flutter: stable
       xcode: latest
@@ -231,7 +255,37 @@ workflows:
       - name: Build iOS without code signing
         script: |
           cd "$CM_BUILD_DIR"
-          flutter build ios --debug --no-codesign
+          # Release + no-codesign → Runner.app (not installable until re-signed).
+          flutter build ios --release --no-codesign \
+            --build-name=1.0.$BUILD_NUMBER \
+            --build-number=$BUILD_NUMBER
+      - name: Package unsigned IPA from Runner.app
+        script: |
+          set -euo pipefail
+          cd "$CM_BUILD_DIR"
+          APP_PATH="build/ios/iphoneos/Runner.app"
+          if [ ! -d "$APP_PATH" ]; then
+            APP_PATH="$(find build/ios -type d -name 'Runner.app' | head -1 || true)"
+          fi
+          if [ -z "${APP_PATH:-}" ] || [ ! -d "$APP_PATH" ]; then
+            echo "ERROR: Runner.app not found under build/ios"
+            find build/ios -maxdepth 4 -type d 2>/dev/null || true
+            exit 1
+          fi
+          echo "Packaging: $APP_PATH"
+          IPA_DIR="$CM_BUILD_DIR/build/ios/ipa"
+          rm -rf "$IPA_DIR"
+          mkdir -p "$IPA_DIR/Payload"
+          # -R preserves symlinks Flutter may place inside the .app
+          cp -R "$APP_PATH" "$IPA_DIR/Payload/Runner.app"
+          (
+            cd "$IPA_DIR"
+            zip -qry "StatMaxxer-unsigned-${BUILD_NUMBER}.ipa" Payload
+          )
+          ls -lh "$IPA_DIR"/*.ipa
+          # Keep Payload for debugging; artifact is the .ipa
+          echo "Unsigned IPA ready (must be re-signed to install on a device)."
     artifacts:
+      - build/ios/ipa/*.ipa
       - build/ios/iphoneos/**/*.app
       - /tmp/xcodebuild_logs/*.log
