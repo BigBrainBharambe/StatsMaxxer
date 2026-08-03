@@ -15,7 +15,8 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>stat_maxxer</string>
+	<!-- Apple appIdName (used by Sideloadly) rejects underscores -->
+	<string>StatMaxxer</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
